@@ -13,6 +13,8 @@ import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.Hitsplat;
 import net.runelite.api.events.SoundEffectPlayed;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.client.Notifier;
+import net.runelite.client.RuneLite;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
@@ -20,15 +22,15 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.specialcounter.SpecialWeapon;
 
 import javax.sound.sampled.*;
-import java.io.IOException;
-import java.net.URL;
+import java.io.*;
 import java.util.Arrays;
 
 @Slf4j
 @PluginDescriptor(
 	name = "Dragon WAHammer",
 	enabledByDefault = false,
-	description = "Swaps out the special attack sound on the dragon warhammer for something a bit more... WAHnderful."
+	description = "Swaps out the special attack sound on the dragon warhammer for something a bit more... WAHnderful.\n" +
+			"Place your custom dwh_hit.wav and dwh_miss.wav files in your root RuneLite directory to use the plugin."
 )
 public class DragonWahammerPlugin extends Plugin
 {
@@ -40,8 +42,11 @@ public class DragonWahammerPlugin extends Plugin
 
 	private Clip clip;
 
-	private String wahPath = "wah.wav";
-	private String mlemPath = "mlem.wav";
+	private static final String HIT_NAME = "dwh_hit.wav";
+	private static final String MISS_NAME = "dwh_miss.wav";
+	private static final File HIT_FILE = new File(RuneLite.RUNELITE_DIR, HIT_NAME);
+	private static final File MISS_FILE = new File(RuneLite.RUNELITE_DIR, MISS_NAME);
+
 	private SpecialWeapon dwh = SpecialWeapon.DRAGON_WARHAMMER;
 
 	@Provides
@@ -71,54 +76,70 @@ public class DragonWahammerPlugin extends Plugin
 
 				if (hitsplat.isMine()) {
 					if (hitsplat.getAmount() > 0) {
-						playSound(wahPath);
+						playCustomSound(true);
 					} else {
-						playSound(mlemPath);
+						playCustomSound(false);
 					}
 				}
 			}
 		}
 	}
 
-	public void playSound(String sound)
-	{
+	private synchronized void playCustomSound(boolean hit) {
+		File file = hit ? HIT_FILE : MISS_FILE;
 		try {
-			if (clip != null)
-			{
+			if (clip != null) {
 				clip.close();
 			}
 
-			Class pluginClass = null;
-			AudioInputStream stream = null;
-			try {
-				pluginClass = Class.forName("com.dragonwahammer.DragonWahammerPlugin");
-				URL url = pluginClass.getClassLoader().getResource(sound);
-				stream = AudioSystem.getAudioInputStream(url);
-			} catch (ClassNotFoundException | UnsupportedAudioFileException | IOException e) {
-				e.printStackTrace();
-			}
+			clip = AudioSystem.getClip();
 
-			if (stream == null)
-			{
+			if (!tryLoadSound(hit)) {
 				return;
 			}
 
-			AudioFormat format = stream.getFormat();
-			DataLine.Info info = new DataLine.Info(Clip.class, format);
-			clip = (Clip) AudioSystem.getLine(info);
-
-			clip.open(stream);
-
 			FloatControl volume = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-			float volumeValue = volume.getMinimum() + ((50 + (config.volumeLevel()*5)) * ((volume.getMaximum() - volume.getMinimum()) / 100));
+			float volumeValue = volume.getMinimum() + ((50 + (config.volumeLevel() * 5)) * ((volume.getMaximum() - volume.getMinimum()) / 100));
 
 			volume.setValue(volumeValue);
 
-			clip.start();
+			clip.loop(1);
+		} catch (LineUnavailableException e) {
+			log.warn("Unable to play custom sound", e);
+			return;
 		}
-		catch (Exception e) {
-			e.printStackTrace();
+	}
+
+	private boolean tryLoadSound(boolean hit)
+	{
+		File file = hit ? HIT_FILE : MISS_FILE;
+		String filename = hit ? HIT_NAME : MISS_NAME;
+		if (file.exists())
+		{
+			try (InputStream fileStream = new BufferedInputStream(new FileInputStream(file));
+				 AudioInputStream sound = AudioSystem.getAudioInputStream(fileStream))
+			{
+				clip.open(sound);
+				return true;
+			}
+			catch (UnsupportedAudioFileException | IOException | LineUnavailableException e)
+			{
+				log.warn("Unable to load custom sound", e);
+			}
 		}
+
+		// Otherwise load from the classpath
+		try (InputStream fileStream = new BufferedInputStream(Notifier.class.getResourceAsStream(filename));
+			 AudioInputStream sound = AudioSystem.getAudioInputStream(fileStream))
+		{
+			clip.open(sound);
+			return true;
+		}
+		catch (UnsupportedAudioFileException | IOException | LineUnavailableException e)
+		{
+			log.warn("Unable to load custom sound", e);
+		}
+		return false;
 	}
 
 	private boolean usedDwh()
