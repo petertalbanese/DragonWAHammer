@@ -103,7 +103,7 @@ public class DragonWahammerPlugin extends Plugin
 
 			volume.setValue(volumeValue);
 
-			clip.loop(1);
+			clip.loop(0);
 		} catch (LineUnavailableException e) {
 			log.warn("Unable to play custom sound", e);
 			return;
