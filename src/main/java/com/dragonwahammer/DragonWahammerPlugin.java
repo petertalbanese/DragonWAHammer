@@ -1,18 +1,11 @@
 package com.dragonwahammer;
 
 import com.google.inject.Provides;
-import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Client;
-import net.runelite.api.Actor;
-import net.runelite.api.Player;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
-import net.runelite.api.InventoryID;
-import net.runelite.api.EquipmentInventorySlot;
-import net.runelite.api.Hitsplat;
-import net.runelite.api.events.SoundEffectPlayed;
+import net.runelite.api.*;
 import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.SoundEffectPlayed;
+import net.runelite.api.events.VarbitChanged;
 import net.runelite.client.Notifier;
 import net.runelite.client.RuneLite;
 import net.runelite.client.config.ConfigManager;
@@ -21,16 +14,16 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.specialcounter.SpecialWeapon;
 
+import javax.inject.Inject;
 import javax.sound.sampled.*;
 import java.io.*;
 import java.util.Arrays;
 
 @Slf4j
 @PluginDescriptor(
-	name = "Dragon WAHammer",
-	enabledByDefault = false,
-	description = "Swaps out the special attack sound on the dragon warhammer for something a bit more... WAHnderful.\n" +
-			"Place your custom dwh_hit.wav and dwh_miss.wav files in your root RuneLite directory to use the plugin."
+		name = "Dragon WAHammer",
+		enabledByDefault = false,
+		description = "Swaps out the special attack sound on the dragon warhammer for something a bit more... WAHnderful."
 )
 public class DragonWahammerPlugin extends Plugin
 {
@@ -47,18 +40,40 @@ public class DragonWahammerPlugin extends Plugin
 	private static final File HIT_FILE = new File(RuneLite.RUNELITE_DIR, HIT_NAME);
 	private static final File MISS_FILE = new File(RuneLite.RUNELITE_DIR, MISS_NAME);
 
+	private int specPercentage = -1;
+	private boolean isSpec = false;
+
 	private SpecialWeapon dwh = SpecialWeapon.DRAGON_WARHAMMER;
 
 	@Provides
-    DragonWahammerConfig provideConfig(ConfigManager configManager)
+	DragonWahammerConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(DragonWahammerConfig.class);
 	}
 
 	@Subscribe
+	public void onVarbitChanged(VarbitChanged event) {
+		if (event.getVarpId() != VarPlayer.SPECIAL_ATTACK_PERCENT.getId()) {
+			return;
+		}
+
+		int newSpecPercentage = event.getValue();
+		if (specPercentage == -1 || newSpecPercentage >= specPercentage) {
+			specPercentage = newSpecPercentage;
+		} else if (newSpecPercentage < specPercentage) {
+			specPercentage = newSpecPercentage;
+			if (usedDwh()) {
+				isSpec = true;
+			}
+		}
+
+
+	}
+
+	@Subscribe
 	public void onSoundEffectPlayed(SoundEffectPlayed event)
 	{
-		if (event.getSoundId() == 2520)
+		if (event.getSoundId() == 2520 && isSpec)
 		{
 			event.consume();
 		}
@@ -71,7 +86,8 @@ public class DragonWahammerPlugin extends Plugin
 
 		if (!player.getName().equals(actor.getName()))
 		{
-			if (usedDwh()) {
+			if (isSpec) {
+				isSpec = false;
 				Hitsplat hitsplat = hitsplatApplied.getHitsplat();
 
 				if (hitsplat.isMine()) {
